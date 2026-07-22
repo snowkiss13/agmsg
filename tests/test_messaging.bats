@@ -181,6 +181,44 @@ line3"
   [[ "$output" =~ "quoted team delivery" ]]
 }
 
+@test "check-inbox: role override isolates codex-orch and codex-yuki inboxes" {
+  local project; project="$(mktemp -d)"
+  bash "$SCRIPTS/join.sh" testteam sender codex /tmp/project-sender
+  bash "$SCRIPTS/join.sh" testteam codex-orch codex "$project"
+  bash "$SCRIPTS/join.sh" testteam codex-yuki codex "$project"
+  bash "$SCRIPTS/send.sh" testteam sender codex-orch "orch-only"
+  bash "$SCRIPTS/send.sh" testteam sender codex-yuki "yuki-only"
+
+  # Multiple identities without an explicit role must fail closed and consume
+  # neither inbox; the old first-agent fallback was the production bug.
+  run env -u AGMSG_TEAM -u AGMSG_AGENT -u AGMSG_AGENT_OVERRIDE bash -c \
+    "printf '{}' | bash '$SCRIPTS/check-inbox.sh' codex '$project'"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"orch-only"* ]]
+  [[ "$output" != *"yuki-only"* ]]
+  [ "$(sqlite_mem "SELECT count(*) FROM messages WHERE to_agent='codex-orch' AND read_at IS NULL;")" -eq 1 ]
+  [ "$(sqlite_mem "SELECT count(*) FROM messages WHERE to_agent='codex-yuki' AND read_at IS NULL;")" -eq 1 ]
+
+  # The explicit override is the primary contract used by role-specific
+  # launchers/hooks. It must not even display or mark the other role's row.
+  run env -u AGMSG_TEAM -u AGMSG_AGENT AGMSG_AGENT_OVERRIDE=codex-orch bash -c \
+    "printf '{}' | bash '$SCRIPTS/check-inbox.sh' codex '$project'"
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "orch-only" ]]
+  [[ "$output" != *"yuki-only"* ]]
+  [ "$(sqlite_mem "SELECT count(*) FROM messages WHERE to_agent='codex-orch' AND read_at IS NULL;")" -eq 0 ]
+  [ "$(sqlite_mem "SELECT count(*) FROM messages WHERE to_agent='codex-yuki' AND read_at IS NULL;")" -eq 1 ]
+
+  # Existing role launch blocks use AGMSG_AGENT; retain it as a compatibility
+  # alias while keeping the same strict identity validation.
+  run env -u AGMSG_TEAM -u AGMSG_AGENT_OVERRIDE AGMSG_AGENT=codex-yuki bash -c \
+    "printf '{}' | bash '$SCRIPTS/check-inbox.sh' codex '$project'"
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ "yuki-only" ]]
+  [[ "$output" != *"orch-only"* ]]
+  [ "$(sqlite_mem "SELECT count(*) FROM messages WHERE to_agent='codex-yuki' AND read_at IS NULL;")" -eq 0 ]
+}
+
 @test "history: handles multiline message body" {
   bash "$SCRIPTS/send.sh" testteam alice bob "multi
 line"

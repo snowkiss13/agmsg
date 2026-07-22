@@ -63,8 +63,17 @@ The send side mirrors this: every `send.sh` call from this CC uses the active ro
 
 ## Codex caveat
 
-On Codex, `$agmsg actas <name>` is **send-side only** for this session. Codex slash commands don't see a stable `session_id`, so they can't claim a peer-visible exclusivity lock — Claude Code peers will still subscribe to `<name>`.
+On Codex, `$agmsg actas <name>` remains **send-side only** for the current
+session. Codex slash commands do not expose a stable `session_id`, so they
+cannot claim a peer-visible exclusivity lock.
 
-The receive side isn't actually narrowed either: `check-inbox.sh` resolves identity through `whoami.sh` (which picks the first registered agent) and has no view of the agent's in-session actas role, so Codex keeps polling whichever pair it would have without actas. The check-inbox lock filter only skips pairs *another* session owns.
+Turn delivery now fails closed when more than one identity is registered for a
+project. A role-specific launcher should export `AGMSG_AGENT_OVERRIDE=<name>`
+and, when needed, `AGMSG_TEAM=<team>`; the existing `AGMSG_AGENT=<name>` launch
+variable is accepted as a compatibility alias. The receive hook validates the
+selected pair against the project roster and polls only that inbox. This keeps
+Codex roles such as `codex-orch` and `codex-yuki` separate without enabling a
+Monitor.
 
-Treat Codex actas as a from-line override until a Codex session-id story exists. Claude Code's `/agmsg actas` does claim the lock symmetrically and is the path that exercises the full exclusivity model.
+Claude Code's `/agmsg actas` still provides the full lock-based symmetric
+model.

@@ -87,23 +87,53 @@ if [ -n "$SESSION_ID" ]; then
   fi
 fi
 
-# Identify agent and teams
-WHOAMI=$("$SCRIPT_DIR/whoami.sh" "$PROJECT" "$TYPE")
-# suggest=true means this identity is registered only under a DIFFERENT
-# project, so it is not joined here -> deliver nothing (mirror not_joined).
-# Without this the else-branch extracts "agents=" as the agent name.
-if echo "$WHOAMI" | grep -Eq "not_joined=true|suggest=true"; then
-  exit 0
-fi
-
-# Handle multiple identities: use first agent name
-if echo "$WHOAMI" | grep -q "multiple=true"; then
-  AGENT=$(echo "$WHOAMI" | sed -n 's/.*agents=\([^,]*\).*/\1/p')
+# Identify agent and teams. A role-specific override is required whenever a
+# project has multiple identities: whoami.sh deliberately reports all of them,
+# but a Stop hook has no safe way to ask which role owns this session. The
+# existing Codex AGMSG_AGENT launch variable is accepted as a compatibility
+# alias; AGMSG_AGENT_OVERRIDE is the explicit receive-side name.
+AGENT=""
+TEAMS=""
+AGENT_OVERRIDE="${AGMSG_AGENT_OVERRIDE:-}"
+[ -n "$AGENT_OVERRIDE" ] || [ "$TYPE" != "codex" ] || AGENT_OVERRIDE="${AGMSG_AGENT:-}"
+if [ -n "$AGENT_OVERRIDE" ]; then
+  REGISTERED="$("$SCRIPT_DIR/identities.sh" "$PROJECT" "$TYPE" 2>/dev/null || true)"
+  while IFS=$'\t' read -r team registered_agent; do
+    [ "$registered_agent" = "$AGENT_OVERRIDE" ] || continue
+    # When the launcher supplies AGMSG_TEAM, keep the pair fully qualified.
+    [ -n "${AGMSG_TEAM:-}" ] && [ "$team" != "$AGMSG_TEAM" ] && continue
+    case ",$TEAMS," in
+      *,"$team",*) ;;
+      *) TEAMS="${TEAMS:+$TEAMS,}$team" ;;
+    esac
+  done <<< "$REGISTERED"
+  if [ -n "$TEAMS" ]; then
+    AGENT="$AGENT_OVERRIDE"
+  else
+    # Never fall back to whoami's first identity after an invalid override.
+    emit_status_json "agmsg: identity override is not registered for this project"
+    exit 0
+  fi
 else
+  WHOAMI=$("$SCRIPT_DIR/whoami.sh" "$PROJECT" "$TYPE")
+  # suggest=true means this identity is registered only under a DIFFERENT
+  # project, so it is not joined here -> deliver nothing (mirror not_joined).
+  # Without this the else-branch extracts "agents=" as the agent name.
+  if echo "$WHOAMI" | grep -Eq "not_joined=true|suggest=true"; then
+    exit 0
+  fi
+
+  if echo "$WHOAMI" | grep -q "multiple=true"; then
+    # The former first-agent fallback could consume another role's inbox.
+    # Require the role launcher to pin AGMSG_AGENT_OVERRIDE/AGMSG_AGENT.
+    # 複数identityの未指定受信は誤配送防止のためfail-closedにする。
+    emit_status_json "agmsg: multiple identities; set AGMSG_AGENT_OVERRIDE"
+    exit 0
+  fi
   # Anchor on a leading "agent=" so "agents=" (multiple/suggest) cannot match.
   AGENT=$(echo "$WHOAMI" | sed -n 's/^agent=\([^ ]*\).*/\1/p')
+  TEAMS=$(echo "$WHOAMI" | sed -n 's/.*teams=\([^ ]*\).*/\1/p')
 fi
-TEAMS=$(echo "$WHOAMI" | sed -n 's/.*teams=\([^ ]*\).*/\1/p')
 
 if [ -z "$AGENT" ] || [ -z "$TEAMS" ]; then
   exit 0
@@ -158,11 +188,8 @@ for team in "${TEAM_LIST[@]}"; do
   # CC sessions (#62), giving Stop-hook delivery (codex / claude-code
   # turn-mode) the same "respect peer locks" guarantee.
   #
-  # Note: AGENT comes from whoami.sh, which returns the first registered
-  # agent for (project, type). It is NOT the session's in-memory actas
-  # role. That asymmetry is the Codex caveat documented in README — if a
-  # Codex session actas'd into <name>, check-inbox is still polling
-  # whatever whoami chose first, not <name>.
+  # AGENT is pinned by the role launch environment when multiple identities
+  # exist. The lock filter still skips pairs *another* session owns.
   state=$(actas_lock_state "$team" "$AGENT" "${SESSION_ID:-}") || { CLAIM_RC=$?; CLAIM_FAILED_TEAM="$team"; break; }
   case "$state" in
     other:*) continue ;;
