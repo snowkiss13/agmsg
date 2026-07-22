@@ -47,6 +47,40 @@ await_barrier_reached() {
   [ -z "$output" ]
 }
 
+@test "inbox: --quiet emits compact ids and keeps full body retrievable" {
+  local body="abcdefghijklmnopqrstuvwxyz"
+  bash "$SCRIPTS/send.sh" testteam bob alice "$body"
+  AGMSG_CONTEXT_PREVIEW_CHARS=8 run bash "$SCRIPTS/inbox.sh" testteam alice --quiet
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"[id="* ]]
+  [[ "$output" == *"abcdefgh…"* ]]
+  [[ "$output" != *"$body"* ]]
+  local id
+  id="$(printf '%s' "$output" | sed -n 's/.*\[id=\([0-9][0-9]*\)\].*/\1/p')"
+  run bash "$SCRIPTS/api.sh" get teams testteam messages --agent alice --id "$id"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"$body"* ]]
+}
+
+@test "inbox: normal mode still emits the full body" {
+  local body="abcdefghijklmnopqrstuvwxyz"
+  bash "$SCRIPTS/send.sh" testteam bob alice "$body"
+  AGMSG_CONTEXT_PREVIEW_CHARS=8 run bash "$SCRIPTS/inbox.sh" testteam alice
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"$body"* ]]
+}
+
+@test "check-inbox: automatic delivery truncates body and includes fetch id" {
+  local body="abcdefghijklmnopqrstuvwxyz"
+  bash "$SCRIPTS/send.sh" testteam bob alice "$body"
+  AGMSG_CONTEXT_PREVIEW_CHARS=8 run bash "$SCRIPTS/check-inbox.sh" claude-code /tmp/project-a
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"[id="* ]]
+  [[ "$output" == *"abcdefgh…"* ]]
+  [[ "$output" == *"full: lean.sh get testteam alice"* ]]
+  [[ "$output" != *"$body"* ]]
+}
+
 @test "inbox: a message arriving between display and mark is NOT marked read unseen" {
   bash "$SCRIPTS/send.sh" testteam bob alice "early"
   # Pause the run between display and mark, land a message inside the window,

@@ -14,6 +14,7 @@ teardown() {
   run bash "$SCRIPTS/config.sh" show
   [ "$status" -eq 0 ]
   [[ "$output" =~ "check_interval" ]]
+  [[ "$output" =~ "context_preview_chars: 160" ]]
   [ -f "$TEST_SKILL_DIR/db/config.yaml" ]
 }
 

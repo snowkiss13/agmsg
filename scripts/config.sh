@@ -136,6 +136,9 @@ create_default_config() {
 # no global "mode" key. Only machine-wide tuning lives here.
 
 delivery:
+  # Maximum characters of each body injected by turn/lean delivery.
+  # Use 0 for legacy full bodies. Manual inbox/history are always full.
+  context_preview_chars: 160
   monitor:
     # watch.sh SQLite poll interval, seconds
     poll_interval: 5

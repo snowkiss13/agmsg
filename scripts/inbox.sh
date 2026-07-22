@@ -14,7 +14,9 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib/storage.sh"
+source "$SCRIPT_DIR/lib/context-preview.sh"
 DB="$(agmsg_db_path)"
+PREVIEW_CHARS="$(agmsg_context_preview_chars "$SCRIPT_DIR")"
 
 if [ ! -f "$DB" ]; then
   if [ "$QUIET" = true ]; then exit 0; fi
@@ -42,17 +44,30 @@ fi
 
 # Display, collecting the ids actually shown
 COUNT=$(echo "$UNREAD" | wc -l | tr -d ' ')
-echo "$COUNT new message(s):"
-echo ""
+if [ "$QUIET" = true ]; then
+  echo "agmsg: $COUNT unread for $TEAM/$AGENT"
+else
+  echo "$COUNT new message(s):"
+  echo ""
+fi
 IDS=""
 while IFS=$'\x1f' read -r id from body ts; do
-  echo "  [$ts] $from: $body"
+  if [ "$QUIET" = true ]; then
+    display_body="$(agmsg_context_preview_body "$body" "$PREVIEW_CHARS")"
+    printf '  [%s] [id=%s] %s: %s' "$ts" "$id" "$from" "$display_body"
+    if agmsg_context_body_is_truncated "$body" "$PREVIEW_CHARS"; then
+      printf ' (full: lean.sh get %s %s %s)' "$TEAM" "$AGENT" "$id"
+    fi
+    printf '\n'
+  else
+    echo "  [$ts] $from: $body"
+  fi
   case "$id" in
     ''|*[!0-9]*) ;; # defensive: never splice a non-numeric value into SQL
     *) IDS="${IDS:+$IDS,}$id" ;;
   esac
 done <<< "$UNREAD"
-echo ""
+[ "$QUIET" = true ] || echo ""
 
 # Test seam: a two-file barrier that lets the race regression test land a
 # message deterministically between display and mark. No-op unless set.

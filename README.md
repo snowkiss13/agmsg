@@ -262,6 +262,14 @@ How incoming messages reach your agent. Pick one at first join via the prompt, o
 
 Settings are per-project. Each `<project>/.claude/settings.local.json` gets exactly the hooks the chosen mode needs — repeated `set` calls are idempotent.
 
+Automatic `turn` delivery is context-bounded: each message body is previewed at
+160 characters and includes its message id. Fetch the full body only when needed
+with `scripts/lean.sh get <team> <agent> <id>`. Set
+`delivery.context_preview_chars` with `config.sh` to change the limit, or use `0`
+for legacy full-body injection. Manual `inbox.sh` and `history.sh` remain full.
+Agents that already know their team/name can bypass the full skill workflow with
+`lean.sh inbox|get|send`, which is the lowest-context supported entry point.
+
 **Monitor priming**: in `monitor` mode, the receiving agent doesn't react to its first inbound message until it has taken at least one turn this session. If you've just started a fresh session and a teammate has already sent something, nudge the agent with any short message ("hi") to prime it — subsequent messages stream in real time.
 
 ### Migrating from legacy `hook on/off`

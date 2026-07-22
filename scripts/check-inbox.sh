@@ -18,6 +18,9 @@ source "$SCRIPT_DIR/lib/actas-lock.sh"
 source "$SCRIPT_DIR/lib/resolve-project.sh"  # agmsg_agent_pid, for instance-id derivation
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/lib/type-registry.sh"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/context-preview.sh"
+PREVIEW_CHARS="$(agmsg_context_preview_chars "$SCRIPT_DIR")"
 
 # Some Stop-hook runtimes (codex, copilot) want an explicit JSON status object
 # even when there is nothing to deliver; others (claude-code) stay silent. This
@@ -175,7 +178,12 @@ for team in "${TEAM_LIST[@]}"; do
     OUTPUT+="$COUNT new message(s) in $team:"$'\n'
     IDS=""
     while IFS=$'\x1f' read -r id from body ts; do
-      OUTPUT+="  [$ts] $from: $body"$'\n'
+      display_body="$(agmsg_context_preview_body "$body" "$PREVIEW_CHARS")"
+      OUTPUT+="  [$ts] [id=$id] $from: $display_body"
+      if agmsg_context_body_is_truncated "$body" "$PREVIEW_CHARS"; then
+        OUTPUT+=" (full: lean.sh get $team $AGENT $id)"
+      fi
+      OUTPUT+=$'\n'
       case "$id" in
         ''|*[!0-9]*) ;; # defensive: never splice a non-numeric value into SQL
         *) IDS="${IDS:+$IDS,}$id" ;;

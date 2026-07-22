@@ -150,6 +150,30 @@ json_valid_line() {
   [ "$(json_field "$output" body)" = "one" ]
 }
 
+@test "api: get teams <team> messages --id returns exactly one full message" {
+  bash "$SCRIPTS/send.sh" testteam alice bob "one"
+  bash "$SCRIPTS/send.sh" testteam alice bob "two"
+  local rows id
+  rows="$(bash "$SCRIPTS/api.sh" get teams testteam messages)"
+  id="$(json_field "$(echo "$rows" | sed -n 1p)" id)"
+  run bash "$SCRIPTS/api.sh" get teams testteam messages --agent bob --id "$id"
+  [ "$status" -eq 0 ]
+  [ "$(echo "$output" | wc -l | tr -d ' ')" -eq 1 ]
+  [ "$(json_field "$output" body)" = "one" ]
+}
+
+@test "api: --id rejects use with --before-id" {
+  run bash "$SCRIPTS/api.sh" get teams testteam messages --id 1 --before-id 2
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"cannot be used together"* ]]
+}
+
+@test "api: --id rejects a nonnumeric id instead of returning broad history" {
+  run bash "$SCRIPTS/api.sh" get teams testteam messages --id nope
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"must be numeric"* ]]
+}
+
 @test "api: get teams <team> messages emits valid JSON for a body containing a quote" {
   bash "$SCRIPTS/send.sh" testteam alice bob "she said \"hi\""
   run bash "$SCRIPTS/api.sh" get teams testteam messages

@@ -26,7 +26,7 @@ set -euo pipefail
 # Usage:
 #   api.sh get teams
 #   api.sh get teams <team> members
-#   api.sh get teams <team> messages [--agent <name>] [--limit N] [--before-id <id>]
+#   api.sh get teams <team> messages [--agent <name>] [--limit N] [--before-id <id>] [--id <id>]
 #
 # Output is always JSONL — one JSON object per line, UTF-8, no
 # pretty-printing — for every resource, including `teams` (a uniform
@@ -97,12 +97,13 @@ get_members() {
 get_messages() {
   local team="$1"
   shift
-  local agent="" limit=30 before_id=""
+  local agent="" limit=30 before_id="" exact_id="" exact_id_set=0
   while [ $# -gt 0 ]; do
     case "$1" in
       --agent) agent="${2:?--agent needs a value}"; shift 2 ;;
       --limit) limit="${2:?--limit needs a value}"; shift 2 ;;
       --before-id) before_id="${2:?--before-id needs a value}"; shift 2 ;;
+      --id) exact_id="${2:?--id needs a value}"; exact_id_set=1; shift 2 ;;
       *) echo "Unknown option: $1" >&2; exit 1 ;;
     esac
   done
@@ -110,6 +111,15 @@ get_messages() {
   # same guard history.sh uses for LIMIT.
   case "$limit" in ''|*[!0-9]*) limit=30 ;; esac
   case "$before_id" in ''|*[!0-9]*) before_id="" ;; esac
+  if [ "$exact_id_set" -eq 1 ]; then
+    case "$exact_id" in
+      ''|*[!0-9]*) echo "--id must be numeric" >&2; exit 2 ;;
+    esac
+  fi
+  if [ -n "$before_id" ] && [ -n "$exact_id" ]; then
+    echo "--before-id and --id cannot be used together" >&2
+    exit 2
+  fi
 
   local db; db="$(agmsg_db_path)"
   if [ ! -f "$db" ]; then
@@ -124,6 +134,10 @@ get_messages() {
   fi
   if [ -n "$before_id" ]; then
     where="$where AND id<$before_id"
+  fi
+  if [ -n "$exact_id" ]; then
+    where="$where AND id=$exact_id"
+    limit=1
   fi
 
   # Inner query takes the most recent `limit` by id DESC, outer re-sorts
